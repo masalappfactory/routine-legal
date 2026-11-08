@@ -1,0 +1,46 @@
+name: Publish legal pages
+'on':
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: legal-pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Require completed documents
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, hashlib
+          from datetime import date
+          manifest = json.loads(Path('publication.json').read_text())
+          assert manifest['appName'] == 'Routine Tracker - Rutiniq'
+          assert manifest['contactEmail'] == 'masalappfactory@gmail.com'
+          date.fromisoformat(manifest['effectiveDate'])
+          for name in ['privacy-policy.html', 'terms-of-use.html']:
+              text = Path(name).read_text()
+              if any(marker in text for marker in ['[App name to be confirmed]', 'Draft for review', 'To be confirmed']):
+                  raise SystemExit(f'{name}: incomplete document.')
+              assert manifest['appName'] in text and manifest['contactEmail'] in text
+              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == manifest['documents'][name]
+          PY
+      - name: Stage public files only
+        run: |
+          mkdir _site
+          cp index.html privacy-policy.html terms-of-use.html style.css publication.json .nojekyll _site/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Publish
+        id: deployment
+        uses: actions/deploy-pages@v4
